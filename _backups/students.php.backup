@@ -1,0 +1,464 @@
+<?php
+session_start();
+if (!isset($_SESSION['user_id'])) {
+    header("Location: login.html");
+    exit;
+}
+?>
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+
+
+
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Liste des étudiants</title>
+  <style>
+    :root{
+      --primary:#2563eb; --primary-dark:#1e40af; --bg:#f8fafc; --card:#ffffff; --muted:#6b7280;
+      --ring: rgba(37,99,235,0.25);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:#111827}
+    header{display:flex;align-items:center;justify-content:space-between;padding:16px 20px;background:linear-gradient(90deg,var(--primary),var(--primary-dark));color:#fff;box-shadow:0 4px 12px rgba(0,0,0,.1)}
+    header .title{font-weight:800;letter-spacing:.2px}
+    header .user{opacity:.95}
+    main{max-width:1200px;margin:24px auto;padding:0 16px 48px}
+    .row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+    .card{background:var(--card);border-radius:16px;box-shadow:0 6px 18px rgba(0,0,0,.06);padding:16px}
+    .classes{display:flex;gap:12px;flex-wrap:wrap}
+    .pill{padding:10px 14px;border-radius:999px;background:#eef2ff;color:#1e3a8a;font-weight:600;border:1px solid #e5e7eb;cursor:pointer;transition:.2s}
+    .pill:hover{transform:translateY(-1px);box-shadow:0 4px 10px rgba(0,0,0,.06)}
+    .btn{background:var(--primary);color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer;transition:.2s}
+    .btn.secondary{background:#1118270d;color:#111827;border:1px solid #e5e7eb}
+    .btn:hover{background:var(--primary-dark)}
+    .btn:focus{outline:2px solid var(--ring)}
+    .tabs{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    .tab{display:flex;align-items:center;gap:10px;background:#eef2ff;border:1px solid #c7d2fe;border-radius:12px;padding:8px 12px;font-weight:700;color:#1e3a8a;cursor:pointer}
+    .tab.active{background:#c7d2fe}
+    .tab button{border:none;background:transparent;cursor:pointer;font-size:14px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:14px}
+    .student{padding:16px;border-radius:16px;background:var(--card);box-shadow:0 6px 18px rgba(0,0,0,.06)}
+    .student img{width:84px;height:84px;border-radius:50%;object-fit:cover;border:3px solid #e5e7eb}
+    .muted{color:var(--muted)}
+    .badge{display:inline-block;padding:4px 8px;border-radius:999px;background:#f1f5f9;border:1px solid #e5e7eb;margin:2px 4px 0 0;font-size:12px}
+    .toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    .toolbar .btn{padding:8px 10px;font-size:14px}
+    .modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:center;justify-content:center;padding:16px;z-index:40}
+    .modal{width:min(720px,96vw);background:var(--card);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.2);padding:18px}
+    .modal header{background:transparent;color:#111827;box-shadow:none;padding:0;margin:0 0 10px;justify-content:space-between}
+    label{font-weight:600;font-size:14px;margin-top:8px;display:inline-block}
+    input[type=text],input[type=date],select,textarea{width:100%;padding:10px;border:1px solid #e5e7eb;border-radius:10px}
+    input:focus,select:focus,textarea:focus{outline:2px solid var(--ring);border-color:#bfdbfe}
+    .row.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .row.three{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .danger{background:#dc2626}
+    .danger:hover{background:#991b1b}
+    .preview{display:flex;align-items:center;gap:12px;margin-top:8px}
+    .preview img{width:64px;height:64px;border-radius:12px;object-fit:cover;border:2px solid #e5e7eb}
+    .close{border:none;background:#1118270d;border:1px solid #e5e7eb;border-radius:10px;padding:8px 12px;cursor:pointer}
+    .empty{padding:24px;text-align:center;color:var(--muted)}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">📚 Liste des étudiants</div>
+    <div class="user"><a href="index.php" style="color:#fff;text-decoration:none">↩ retour</a></div>
+    
+
+  </header>
+  <main>
+    <section class="card">
+      <div class="row">
+        <button class="btn" id="btnNewClass">➕ Nouvelle classe</button>
+        <button class="btn secondary" id="btnRefresh">⟳ Actualiser</button>
+      </div>
+      <div class="classes" id="classList" style="margin-top:12px;"></div>
+    </section>
+
+    <section class="card" style="margin-top:16px;">
+      <div class="tabs" id="tabs"></div>
+      <div id="tabPanels" style="margin-top:12px;"></div>
+    </section>
+  </main>
+
+  <!-- Class Modal -->
+  <div class="modal-backdrop" id="classModal">
+    <div class="modal">
+      <header class="row">
+        <h3>➕ Créer une classe</h3>
+        <button class="close" data-close="classModal">Fermer</button>
+      </header>
+      <div>
+        <label for="className">Nom (ex: 1AM2, 3AM1)</label>
+        <input type="text" id="className" placeholder="1AM2" />
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="saveClass">Enregistrer</button>
+        </div>
+      </div>
+    </div>
+  
+  </div>
+
+  <!-- Student Modal -->
+  <div class="modal-backdrop" id="studentModal">
+    
+    <div class="modal">
+      <header class="row">
+        <h3 id="studentModalTitle">➕ Ajouter un étudiant</h3>
+        <button class="close" data-close="studentModal">Fermer</button>
+      </header>
+      <!-- paste this inside the same <div class="toolbar"> where your Add/Reload buttons are -->
+
+      <div>
+        <input type="hidden" id="studentId" />
+        <div class="row two">
+          <div>
+            <label for="studentName">Nom complet</label>
+            <input type="text" id="studentName"/>
+          </div>
+          <div>
+            <label for="studentDob">Date de naissance</label>
+            <input type="date" id="studentDob"/>
+          </div>
+        </div>
+        <label for="studentBio">Bio</label>
+        <textarea id="studentBio" rows="3" placeholder="Notes, comportement, etc."></textarea>
+        <div class="row two">
+          <div>
+            <label for="studentCat1">Catégorie 1</label>
+            <select id="studentCat1">
+              <option value="">—</option>
+              <option>Élève excellent</option>
+              <option>Élève bon mais peu participatif</option>
+              <option>Élève volontaire mais en difficulté</option>
+              <option>Élève en difficulté et démotivé</option>
+            </select>
+          </div>
+          <div>
+            <label>Difficultés (plusieurs)</label>
+            <div class="row" style="gap:10px">
+              <label><input type="checkbox" class="diff" value="Élève ayant des difficultés en écriture"/> Écriture</label>
+              <label><input type="checkbox" class="diff" value="Élève ayant des difficultés en lecture"/> Lecture</label>
+              <label><input type="checkbox" class="diff" value="Élève ayant des difficultés en langue"/> Langue</label>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:10px">
+          <label for="studentPic">Photo (depuis l’ordinateur)</label>
+          <input type="file" id="studentPic" accept="image/*"/>
+          <div class="preview" id="picPreview" style="display:none">
+            <img id="picImg" alt="preview"/>
+            <span class="muted">Aperçu</span>
+          </div>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn" id="saveStudent">Enregistrer</button>
+          <button class="btn danger" id="deleteStudent" style="display:none">Supprimer</button>
+        </div>
+        
+
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const api = 'api.php'; // same directory
+    const classList = document.getElementById('classList');
+    const tabs = document.getElementById('tabs');
+    const tabPanels = document.getElementById('tabPanels');
+
+    const classModal = document.getElementById('classModal');
+    const studentModal = document.getElementById('studentModal');
+
+    const openModal = (el)=> el.style.display='flex';
+    const closeModal = (id)=> document.getElementById(id).style.display='none';
+    document.querySelectorAll('.close').forEach(b=> b.addEventListener('click', (e)=> closeModal(e.target.dataset.close)));
+
+    // Class modal controls
+    document.getElementById('btnNewClass').onclick = ()=> { document.getElementById('className').value=''; openModal(classModal); };
+    document.getElementById('btnRefresh').onclick = ()=> loadClasses();
+
+    async function loadClasses(){
+      const res = await fetch(`${api}?action=classes`);
+      const data = await res.json();
+      classList.innerHTML = '';
+      data.forEach(c=>{
+        const pill = document.createElement('button');
+        pill.className='pill';
+        pill.textContent = c.name;
+        pill.onclick = ()=> openClassTab(c);
+        classList.appendChild(pill);
+      });
+    }
+
+    // Save class
+    document.getElementById('saveClass').onclick = async ()=>{
+      const name = document.getElementById('className').value.trim();
+      if(!name) return alert('Nom de classe requis');
+      const res = await fetch(api, {method:'POST', body:new URLSearchParams({action:'add_class', name})});
+      const out = await res.json();
+      if(out.error) return alert(out.error);
+      closeModal('classModal');
+      loadClasses();
+    };
+
+    // Tabs state
+    const openTabs = new Map(); // classId -> {tabEl, panelEl}
+
+    async function openClassTab(c){
+      if(openTabs.has(c.id)){
+        // activate
+        activateTab(c.id);
+        return;
+      }
+      // create tab button
+      const tab = document.createElement('div');
+      tab.className = 'tab active';
+      tab.innerHTML = `<span>${c.name}</span> <button title="Fermer">✕</button>`;
+      tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      tabs.appendChild(tab);
+
+      // close behavior
+      tab.querySelector('button').onclick = ()=>{
+        // remove panel and tab
+        const entry = openTabs.get(c.id);
+        entry.panelEl.remove();
+        tab.remove();
+        openTabs.delete(c.id);
+        // activate last tab if any
+        const last = Array.from(tabs.querySelectorAll('.tab')).pop();
+        if(last){
+          const id = [...openTabs.keys()].pop();
+          if(id) activateTab(id);
+        }
+      };
+
+      // panel
+      const panel = document.createElement('div');
+      panel.className='card';
+      panel.innerHTML = `
+        <div class="toolbar">
+          <button class="btn" data-add>➕ Ajouter un étudiant</button>
+          <button class="btn secondary" data-reload>⟳ Actualiser</button>
+        </div>
+        <div class="grid" data-grid></div>
+      `;
+      tabPanels.appendChild(panel);
+
+      openTabs.set(c.id, {tabEl:tab, panelEl:panel});
+      // wire buttons
+      panel.querySelector('[data-add]').onclick = ()=> openStudentModal(c.id);
+      panel.querySelector('[data-reload]').onclick = ()=> loadStudents(c.id);
+
+      // after:
+// panel.querySelector('[data-add]').onclick = ()=> openStudentModal(c.id);
+// panel.querySelector('[data-reload]').onclick = ()=> loadStudents(c.id);
+
+const applyBtn = panel.querySelector('[data-filter-apply]');
+const clearBtn = panel.querySelector('[data-filter-clear]');
+
+if (applyBtn) applyBtn.onclick = () => loadStudents(c.id);
+
+if (clearBtn) clearBtn.onclick = () => {
+  const cat = panel.querySelector('.filterCategory');
+  const diff = panel.querySelector('.filterDifficulty');
+  if (cat) cat.value = '';
+  if (diff) diff.value = '';
+  loadStudents(c.id);
+};
+
+
+      await loadStudents(c.id);
+      activateTab(c.id);
+    }
+
+    function activateTab(classId){
+      tabs.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+      const entry = openTabs.get(classId);
+      if(entry){
+        entry.tabEl.classList.add('active');
+        // show only this panel
+        Array.from(tabPanels.children).forEach(ch=> ch.style.display='none');
+        entry.panelEl.style.display='block';
+      }
+    }
+
+    async function loadStudents(classId){
+      const entry = openTabs.get(classId);
+      const grid = entry.panelEl.querySelector('[data-grid]');
+      grid.innerHTML = '<div class="empty">Chargement...</div>';
+      const res = await fetch(`${api}?action=students&class_id=${classId}`);
+      const data = await res.json();
+if (!Array.isArray(data) || !data.length) {
+  grid.innerHTML = '<div class="empty">Aucun étudiant pour cette classe.</div>';
+  return;
+}
+
+// get selected filters from this panel
+const filterCatEl = entry.panelEl.querySelector('.filterCategory');
+const filterDiffEl = entry.panelEl.querySelector('.filterDifficulty');
+const filterCat = filterCatEl ? filterCatEl.value : '';
+const filterDiff = filterDiffEl ? filterDiffEl.value : '';
+
+// apply filtering client-side
+const filtered = data.filter(s => {
+  // category match (exact)
+  if (filterCat && ((s.category1 ?? '') !== filterCat)) return false;
+
+  // difficulty match (s.difficulties may be array or JSON string)
+  if (filterDiff) {
+    const diffs = Array.isArray(s.difficulties) ? s.difficulties : (s.difficulties ? JSON.parse(s.difficulties) : []);
+    if (!diffs.includes(filterDiff)) return false;
+  }
+
+  return true;
+});
+
+const listToRender = filtered;
+if (!Array.isArray(listToRender) || !listToRender.length) {
+  grid.innerHTML = '<div class="empty">Aucun étudiant correspondant aux filtres.</div>';
+  return;
+}
+
+      grid.innerHTML = '';
+      data.forEach(s=>{
+        const card = document.createElement('div');
+        card.className='student';
+        const diffs = Array.isArray(s.difficulties) ? s.difficulties : (s.difficulties ? JSON.parse(s.difficulties) : []);
+        card.innerHTML = `
+          <div class="row">
+            <img src="${s.pic_path || ''}" onerror="this.src=''; this.style.display='none';" alt="pic"/>
+            <div>
+              <div style="font-weight:800">${s.name}</div>
+              <div class="muted">${s.dob ?? ''}</div>
+              <div class="muted">${s.bio ?? ''}</div>
+              <div style="margin-top:6px">${s.category1 ? '<span class="badge">'+s.category1+'</span>' : ''}</div>
+              <div style="margin-top:4px">${(diffs||[]).map(d=>`<span class='badge'>${d}</span>`).join('')}</div>
+            </div>
+          </div>
+          <div class="toolbar">
+            <button class="btn" data-edit>✏️ Modifier</button>
+            <button class="btn danger" data-del>🗑️ Supprimer</button>
+          </div>
+        `;
+        card.querySelector('[data-edit]').onclick = ()=> openStudentModal(classId, s);
+        card.querySelector('[data-del]').onclick = ()=> deleteStudent(s.id, classId);
+        grid.appendChild(card);
+      });
+    }
+
+    // Student modal logic
+    function openStudentModal(classId, student=null){
+      document.getElementById('studentId').value = student ? student.id : '';
+      document.getElementById('studentName').value = student ? student.name : '';
+      document.getElementById('studentDob').value = student ? (student.dob || '') : '';
+      document.getElementById('studentBio').value = student ? (student.bio || '') : '';
+      document.getElementById('studentCat1').value = student ? (student.category1 || '') : '';
+      document.getElementById('studentPic').value = '';
+
+      // difficulties
+      document.querySelectorAll('.diff').forEach(cb => {
+        cb.checked = false;
+        if(student){
+          const diffs = Array.isArray(student.difficulties) ? student.difficulties : (student.difficulties ? JSON.parse(student.difficulties) : []);
+          cb.checked = diffs.includes(cb.value);
+        }
+      });
+
+      document.getElementById('studentModalTitle').textContent = student ? '✏️ Modifier un étudiant' : '➕ Ajouter un étudiant';
+      const delBtn = document.getElementById('deleteStudent');
+      delBtn.style.display = student ? 'inline-block' : 'none';
+      delBtn.onclick = ()=> deleteStudent(student.id, classId);
+      // Save handler
+      document.getElementById('saveStudent').onclick = ()=> saveStudent(classId);
+      openModal(studentModal);
+    }
+
+    // Preview pic
+    // Preview pic
+const picInput = document.getElementById('studentPic');
+const picPreview = document.getElementById('picPreview');
+const picImg = document.getElementById('picImg');
+
+picInput.addEventListener('change', (e)=>{
+  const f = e.target.files[0];
+  if(!f){ 
+    picPreview.style.display='none'; 
+    return; 
+  }
+  const url = URL.createObjectURL(f);
+  picImg.src = url;
+  picPreview.style.display='flex';
+});
+
+async function saveStudent(classId){
+  const saveBtn = document.getElementById('saveStudent');
+  const oldText = saveBtn.textContent;
+
+  // prevent double clicks
+  saveBtn.disabled = true;
+  saveBtn.textContent = "Enregistrement...";
+
+  const id = document.getElementById('studentId').value;
+  const name = document.getElementById('studentName').value.trim();
+  const dob = document.getElementById('studentDob').value;
+  const bio = document.getElementById('studentBio').value.trim();
+  const category1 = document.getElementById('studentCat1').value;
+  const diffs = Array.from(document.querySelectorAll('.diff:checked')).map(el=>el.value);
+
+  if(!name){ 
+    alert('Nom requis'); 
+    saveBtn.disabled = false;
+    saveBtn.textContent = oldText;
+    return; 
+  }
+
+  const fd = new FormData();
+  fd.append('action', id ? 'update_student' : 'add_student');
+  if(id) fd.append('id', id);
+  fd.append('class_id', classId);
+  fd.append('name', name);
+  fd.append('dob', dob);
+  fd.append('bio', bio);
+  fd.append('category1', category1);
+  fd.append('difficulties', JSON.stringify(diffs));
+
+  // must match PHP $_FILES['pic']
+  const file = document.getElementById('studentPic').files[0];
+  if(file) fd.append('photo', file);
+
+  try {
+    const res = await fetch(api, { method: 'POST', body: fd });
+    const out = await res.json();
+    console.log("API response:", out);
+
+    if(out.error){
+      alert("Erreur: " + out.error);
+      return;
+    }
+
+    closeModal('studentModal');
+    await loadStudents(classId);
+
+  } catch(err){
+    alert("Erreur réseau: " + err.message);
+  } finally {
+    // restore button
+    saveBtn.disabled = false;
+    saveBtn.textContent = oldText;
+  }
+}
+
+
+
+    // init
+    loadClasses();
+  </script>
+</body>
+</html>
+
+
+

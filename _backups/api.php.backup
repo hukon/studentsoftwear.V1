@@ -1,0 +1,366 @@
+<?php
+// api.php - Simple PHP API for Student Organizer
+// Requirements: PHP 8+, MySQL/MariaDB, PDO extension enabled
+// Configure DB below, place this file next to index.html, create 'uploads/' writable folder.
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+file_put_contents("debug.log", date("c")." ".print_r($_POST,true).PHP_EOL, FILE_APPEND);
+
+header('Content-Type: application/json; charset=utf-8');
+header('Access-Control-Allow-Origin: *'); // same-origin recommended in production
+header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
+
+$DB_HOST = 'sql308.infinityfree.com';
+$DB_NAME = 'if0_39971413_student';
+$DB_USER = 'if0_39971413';
+$DB_PASS = '2thxXBOi75vZOFT';
+
+try {
+  $pdo = new PDO("mysql:host=$DB_HOST;dbname=$DB_NAME;charset=utf8mb4", $DB_USER, $DB_PASS, [
+    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+  ]);
+} catch (Exception $e) {
+  http_response_code(500);
+  echo json_encode(['error' => 'DB connection failed: ' . $e->getMessage()]);
+  exit;
+}
+
+// Ensure uploads directory exists
+$uploadDir = __DIR__ . '/uploads';
+if (!is_dir($uploadDir)) { @mkdir($uploadDir, 0775, true); }
+
+$action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+function json_ok($data){ echo json_encode($data); exit; }
+function json_err($msg, $code=400){ http_response_code($code); echo json_encode(['error'=>$msg]); exit; }
+
+switch ($action) {
+  case 'classes':
+    $stmt = $pdo->query("SELECT id, name FROM classes ORDER BY name ASC");
+    json_ok($stmt->fetchAll());
+    break;
+
+    case 'add_class':
+      if (!isset($_POST['name']) || trim($_POST['name']) === '') {
+          json_err("Class name is required");
+      }
+      $name = trim($_POST['name']);
+  
+      file_put_contents("debug.log", date("c") . " add_class: " . $name . PHP_EOL, FILE_APPEND);
+  
+      $stmt = $pdo->prepare("INSERT INTO classes (name) VALUES (?)");
+      if (!$stmt->execute([$name])) {
+          json_err("Insert failed: " . implode(" | ", $stmt->errorInfo()));
+      }
+  
+      json_ok(["id" => $pdo->lastInsertId(), "name" => $name]);
+      break;
+  
+      case 'students':
+        if (!isset($_GET['class_id'])) {
+            json_err("Missing class_id");
+        }
+        $class_id = intval($_GET['class_id']);
+    
+        file_put_contents("debug.log", date("c") . " fetch_students class_id=" . $class_id . PHP_EOL, FILE_APPEND);
+    
+        $stmt = $pdo->prepare("
+            SELECT id, name, dob, bio, pic_path, category1, difficulties 
+            FROM students 
+            WHERE class_id = ?
+        ");
+        $stmt->execute([$class_id]);
+        $students = $stmt->fetchAll();
+    
+        // ✅ Fix photo URLs
+        foreach ($students as &$row) {
+            if ($row['pic_path']) {
+                $row['pic_path'] = $_SERVER['REQUEST_SCHEME'] . "://" . $_SERVER['HTTP_HOST'] . "/uploads/" . basename($row['pic_path']);
+            }
+        }
+    
+        json_ok($students);
+        break;
+    
+    
+        case 'add_student':
+          $required = ['name', 'dob', 'bio', 'class_id'];
+          foreach ($required as $field) {
+              if (!isset($_POST[$field]) || trim($_POST[$field]) === '') {
+                  json_err("Field '$field' is required");
+              }
+          }
+      
+          $name        = trim($_POST['name']);
+          $dob         = trim($_POST['dob']);
+          $bio         = trim($_POST['bio']);
+          $class_id    = intval($_POST['class_id']);
+          $category1   = $_POST['category1'] ?? null;       // ✅ match DB
+          $difficulties= $_POST['difficulties'] ?? null;    // ✅ match DB
+      
+          $pic_path = null;
+          if (isset($_FILES['photo']) && $_FILES['photo']['error'] === UPLOAD_ERR_OK) {
+              $ext = pathinfo($_FILES['photo']['name'], PATHINFO_EXTENSION);
+              $target = "uploads/" . uniqid("student_", true) . "." . $ext;
+              if (!is_dir("uploads")) mkdir("uploads", 0777, true);
+              if (move_uploaded_file($_FILES['photo']['tmp_name'], $target)) {
+                  $pic_path = $target;
+              } else {
+                  json_err("Photo upload failed");
+              }
+          }
+      
+          file_put_contents("debug.log", date("c") . " add_student: " . print_r($_POST, true) . PHP_EOL, FILE_APPEND);
+      
+          // ✅ match actual DB columns
+          $stmt = $pdo->prepare("
+              INSERT INTO students (class_id, name, dob, bio, pic_path, category1, difficulties) 
+              VALUES (?,?,?,?,?,?,?)
+          ");
+          if (!$stmt->execute([$class_id, $name, $dob, $bio, $pic_path, $category1, $difficulties])) {
+              $err = $stmt->errorInfo();
+              json_err("Insert failed: " . $err[2]);
+          }
+      
+          json_ok([
+              "id"          => $pdo->lastInsertId(),
+              "class_id"    => $class_id,
+              "name"        => $name,
+              "dob"         => $dob,
+              "bio"         => $bio,
+              "pic_path"    => $pic_path,
+              "category1"   => $category1,
+              "difficulties"=> $difficulties
+          ]);
+          break;
+      
+
+          case 'update_student':
+            $id = intval($_POST['id'] ?? 0);
+            if ($id <= 0) json_err("Missing student id");
+        
+            $name = trim($_POST['name'] ?? '');
+            $dob  = $_POST['dob'] ?? null;
+            $bio  = $_POST['bio'] ?? null;
+            $category1 = $_POST['category1'] ?? null;
+            $difficulties = $_POST['difficulties'] ?? '[]';
+        
+            if ($name === '') json_err("Name required");
+        
+            // handle pic upload
+            $pic_path = null;
+            if (!empty($_FILES['pic']) && $_FILES['pic']['error'] === UPLOAD_ERR_OK) {
+                $ext = pathinfo($_FILES['pic']['name'], PATHINFO_EXTENSION);
+                $target = "uploads/" . uniqid("student_", true) . "." . $ext;
+                if (!is_dir("uploads")) mkdir("uploads", 0777, true);
+                if (move_uploaded_file($_FILES['pic']['tmp_name'], $target)) {
+                    $pic_path = $target;
+                } else {
+                    json_err("Photo upload failed");
+                }
+            }
+        
+            if ($pic_path) {
+                $stmt = $pdo->prepare("UPDATE students SET name=?, dob=?, bio=?, category1=?, difficulties=?, pic_path=? WHERE id=?");
+                $stmt->execute([$name, $dob, $bio, $category1, $difficulties, $pic_path, $id]);
+            } else {
+                $stmt = $pdo->prepare("UPDATE students SET name=?, dob=?, bio=?, category1=?, difficulties=? WHERE id=?");
+                $stmt->execute([$name, $dob, $bio, $category1, $difficulties, $id]);
+            }
+        
+            json_ok(["success" => true]);
+            break;
+
+            
+
+            // --------- Seating: fetch assigned seats for a class ----------
+case 'get_seating':
+  $class_id = intval($_GET['class_id'] ?? 0);
+  if ($class_id <= 0) json_err("Missing class_id");
+  try {
+      $stmt = $pdo->prepare("
+          SELECT seat.row_num, seat.col_num, seat.seat_num, seat.student_id,
+                 s.name, s.pic_path
+          FROM seating AS seat
+          JOIN students AS s ON seat.student_id = s.id
+          WHERE seat.class_id = ?
+      ");
+      $stmt->execute([$class_id]);
+      $rows = $stmt->fetchAll();
+      // normalize pic URL
+      foreach ($rows as &$r) {
+          if (!empty($r['pic_path'])) {
+              $r['pic_url'] = $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['HTTP_HOST'] . '/uploads/' . basename($r['pic_path']);
+          } else {
+              $r['pic_url'] = null;
+          }
+      }
+      json_ok($rows);
+  } catch (Exception $e) {
+      json_err("DB error: " . $e->getMessage());
+  }
+  break;
+
+// --------- Seating: set (assign) seat ----------
+// POST: class_id, student_id, row_num, col_num, seat_num
+case 'set_seating':
+  $class_id  = intval($_POST['class_id'] ?? 0);
+  $student_id = intval($_POST['student_id'] ?? 0);
+  $row = intval($_POST['row_num'] ?? 0);
+  $col = intval($_POST['col_num'] ?? 0);
+  $seat = intval($_POST['seat_num'] ?? 0);
+
+  if (!$class_id || !$student_id || !$row || !$col || !$seat) json_err("Missing parameters");
+
+  try {
+      $pdo->beginTransaction();
+
+      // Remove previous seat for this student in the class (if any)
+      $del = $pdo->prepare("DELETE FROM seating WHERE class_id=? AND student_id=?");
+      $del->execute([$class_id, $student_id]);
+
+      // If seat is already occupied, remove that occupant (we'll overwrite)
+      $del2 = $pdo->prepare("DELETE FROM seating WHERE class_id=? AND row_num=? AND col_num=? AND seat_num=?");
+      $del2->execute([$class_id, $row, $col, $seat]);
+
+      // Insert new assignment
+      $ins = $pdo->prepare("INSERT INTO seating (class_id, student_id, row_num, col_num, seat_num) VALUES (?,?,?,?,?)");
+      $ins->execute([$class_id, $student_id, $row, $col, $seat]);
+
+      $pdo->commit();
+      json_ok(["success" => true]);
+  } catch (Exception $e) {
+      $pdo->rollBack();
+      json_err("DB error: " . $e->getMessage());
+  }
+  break;
+
+// --------- Seating: remove/unassign by student ----------
+// POST: class_id, student_id
+case 'remove_seating':
+  $class_id = intval($_POST['class_id'] ?? 0);
+  $student_id = intval($_POST['student_id'] ?? 0);
+  if (!$class_id || !$student_id) json_err("Missing parameters");
+  try {
+      $stmt = $pdo->prepare("DELETE FROM seating WHERE class_id=? AND student_id=?");
+      $stmt->execute([$class_id, $student_id]);
+      json_ok(["success" => true]);
+  } catch (Exception $e) {
+      json_err("DB error: " . $e->getMessage());
+  }
+  break;
+
+// --------- Seating: clear all seats for a class (optional) ----------
+// POST: class_id
+case 'clear_seating':
+  $class_id = intval($_POST['class_id'] ?? 0);
+  if (!$class_id) json_err("Missing class_id");
+  try {
+      $stmt = $pdo->prepare("DELETE FROM seating WHERE class_id=?");
+      $stmt->execute([$class_id]);
+      json_ok(["success" => true]);
+  } catch (Exception $e) {
+      json_err("DB error: " . $e->getMessage());
+  }
+  break;
+
+  // GET events for a month: action=calendar_events&year=2025&month=9
+case 'calendar_events':
+  $year = intval($_GET['year'] ?? date('Y'));
+  $month = intval($_GET['month'] ?? date('n'));
+  if ($month < 1 || $month > 12) json_err('Invalid month');
+
+  // start and end dates for the month
+  $start = sprintf('%04d-%02d-01', $year, $month);
+  $end = date('Y-m-d', strtotime("$start +1 month -1 day"));
+
+  try {
+      $events = [];
+
+      // 1) Student birthdays: recurring yearly
+      $stmt = $pdo->prepare("SELECT id, name, dob, pic_path FROM students WHERE dob IS NOT NULL AND dob <> ''");
+      $stmt->execute();
+      $students = $stmt->fetchAll();
+
+      foreach ($students as $s) {
+          $dob = $s['dob']; // YYYY-MM-DD
+          if (!$dob) continue;
+          $m = intval(date('n', strtotime($dob)));
+          $d = intval(date('j', strtotime($dob)));
+
+          // build event date in this year
+          $eventDate = sprintf('%04d-%02d-%02d', $year, $m, $d);
+
+          // only include if inside requested month range
+          if ($eventDate >= $start && $eventDate <= $end) {
+              $events[] = [
+                  'type' => 'birthday',
+                  'title' => $s['name'] . " — Anniversaire",
+                  'date' => $eventDate,
+                  'student_id' => intval($s['id']),
+                  'pic' => $s['pic_path'] ? (strpos($s['pic_path'],'http')===0 ? $s['pic_path'] : ($_SERVER['REQUEST_SCHEME'].'://'.$_SERVER['HTTP_HOST'].'/uploads/'.basename($s['pic_path']))) : null
+              ];
+          }
+      }
+
+      // 2) Holidays table (one-time and recurring)
+      // Recurring yearly holidays: transform month/day to this year
+      $stmt = $pdo->query("SELECT * FROM holidays");
+      $hols = $stmt->fetchAll();
+
+      foreach ($hols as $h) {
+          if ($h['recurring']) {
+              $md = date('m-d', strtotime($h['date']));
+              $eventDate = $year . '-' . $md;
+          } else {
+              $eventDate = $h['date'];
+          }
+          if ($eventDate >= $start && $eventDate <= $end) {
+              $events[] = [
+                  'type' => 'holiday',
+                  'title' => $h['title'],
+                  'date' => $eventDate,
+                  'holiday_id' => intval($h['id']),
+                  'notes' => $h['notes'] ?? null
+              ];
+          }
+      }
+
+      json_ok($events);
+  } catch (Exception $e) {
+      json_err('DB error: '.$e->getMessage());
+  }
+  break;
+
+// simpler endpoints to add/edit holidays (admin)
+// Add holiday (POST): action=add_holiday (title, date YYYY-MM-DD, recurring 0/1, notes)
+case 'add_holiday':
+  $title = trim($_POST['title'] ?? '');
+  $date = trim($_POST['date'] ?? '');
+  $rec = intval($_POST['recurring'] ?? 0);
+  $notes = $_POST['notes'] ?? null;
+  if ($title === '' || $date === '') json_err('title and date required');
+  $stmt = $pdo->prepare("INSERT INTO holidays (title, date, recurring, notes) VALUES (?,?,?,?)");
+  $stmt->execute([$title, $date, $rec, $notes]);
+  json_ok(['id' => $pdo->lastInsertId()]);
+  break;
+
+// Delete holiday (POST): action=del_holiday (id)
+case 'del_holiday':
+  $id = intval($_POST['id'] ?? 0);
+  if (!$id) json_err('id required');
+  $stmt = $pdo->prepare("DELETE FROM holidays WHERE id=?");
+  $stmt->execute([$id]);
+  json_ok(['success'=>true]);
+  break;
+
+        
+  default:
+    json_err('Action inconnue', 404);
+}
