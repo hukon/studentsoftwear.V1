@@ -73,7 +73,7 @@ INSERT INTO students (class_id, name, dob, bio, pic_path) VALUES
 (2, 'DJALOUL Amir', '2012-10-04', 'Moyenne: 14.18/20', 'uploads/DJALOUL_Amir.jpg'),
 (2, 'DJOUDI Rami', '2012-07-11', 'Moyenne: 14.65/20', 'uploads/DJOUDI_Rami.jpg'),
 (2, 'HADED Younes', '2012-12-19', 'Moyenne: 11.26/20', 'uploads/HADED_Younes.jpg'),
-(2, 'HAKIMI Maria', '2011-02-29', 'Moyenne: 10.50/20', 'uploads/HAKIMI_Maria.jpg'),
+(2, 'HAKIMI Maria', '2011-02-28', 'Moyenne: 10.50/20', 'uploads/HAKIMI_Maria.jpg'),
 (2, 'HAMOUDI Lina', '2012-11-06', 'Moyenne: 15.58/20', 'uploads/HAMOUDI_Lina.jpg'),
 (2, 'HAMOUDI Med Fadi', '2010-10-06', 'Redoublant - Moyenne précédente: 9.34/20', 'uploads/HAMOUDI_Med_Fadi.jpg'),
 (2, 'KHABEB Abdallah', '2011-03-01', 'Moyenne: 11.33/20', 'uploads/KHABEB_Abdallah.jpg'),
